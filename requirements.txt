@@ -1,0 +1,8 @@
+Flask==3.1.1
+Flask-SQLAlchemy==3.1.1
+pyserial==3.5
+numpy>=1.26.0
+python-dotenv>=1.0.0
+# scikit-learn is optional — the app includes a built-in NumPy implementation.
+# If you have Python 3.11 or 3.12, you can install it for better ML performance:
+# pip install scikit-learn

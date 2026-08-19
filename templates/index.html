@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Train Distance Alert System</title>
+  <meta name="description" content="IoT + Machine Learning real-time distance monitoring dashboard using Arduino HC-SR04, Python Flask, and AI anomaly detection.">
+
+  <!-- Fonts + Stylesheet -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="/static/css/style.css">
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ============================================================
+     CRITICAL ALERT OVERLAY
+     ============================================================ -->
+<div id="alert-overlay" class="alert-overlay" aria-hidden="true"></div>
+<div id="alert-toast" class="alert-toast" role="alert">
+  <span>⚠️</span>
+  <span id="alert-message">Alert</span>
+</div>
+
+<!-- ============================================================
+     HEADER
+     ============================================================ -->
+<header class="site-header">
+  <div class="header-brand">
+    <p class="eyebrow">IoT + Machine Learning Monitoring Platform</p>
+    <h1>AI Train Distance Alert System</h1>
+    <p class="subtitle">Arduino UNO · HC-SR04 · Python Flask · Isolation Forest AI</p>
+  </div>
+
+  <div class="header-badges">
+    <!-- Mode badge (MOCK or HARDWARE) injected by Flask -->
+    <div class="mode-badge">
+      <span class="dot"></span>
+      <span>{{ app_mode }} MODE</span>
+    </div>
+
+    <!-- Live / offline indicator -->
+    <div id="live-badge" class="live-badge offline">
+      <span class="dot"></span>
+      <span>CONNECTING</span>
+    </div>
+
+    <!-- Sound toggle -->
+    <button id="sound-btn" class="sound-btn" title="Toggle alert sound">🔇 Sound OFF</button>
+  </div>
+</header>
+
+<!-- ============================================================
+     MAIN DASHBOARD
+     ============================================================ -->
+<main class="dashboard">
+
+  <!-- ── METRIC CARDS ── -->
+  <section class="metrics-grid" aria-label="Current sensor metrics">
+
+    <!-- Card 1: Distance -->
+    <article class="card card-distance">
+      <p class="card-label">Current Distance</p>
+      <div>
+        <span id="val-distance" class="card-value mono">--</span>
+        <span class="card-unit">cm</span>
+      </div>
+      <p class="card-sub">HC-SR04 ultrasonic sensor</p>
+    </article>
+
+    <!-- Card 2: AI Risk Score -->
+    <article class="card card-risk">
+      <p class="card-label">AI Risk Score</p>
+      <div>
+        <span id="val-risk" class="card-value mono">--</span>
+        <span class="card-unit">/ 100</span>
+      </div>
+      <p class="card-sub">Isolation Forest + physics model</p>
+    </article>
+
+    <!-- Card 3: System Status -->
+    <article class="card card-status">
+      <p class="card-label">System Status</p>
+      <div id="val-status">
+        <span id="status-badge" class="status-badge normal">WAITING</span>
+      </div>
+      <p class="card-sub" style="margin-top:12px">NORMAL / CAUTION / WARNING / CRITICAL</p>
+    </article>
+
+    <!-- Card 4: Approach Speed -->
+    <article class="card card-speed">
+      <p class="card-label">Approach Speed</p>
+      <div>
+        <span id="val-speed" class="card-value mono">--</span>
+        <span class="card-unit">cm/s</span>
+      </div>
+      <p id="speed-sub" class="card-sub">Calculating...</p>
+    </article>
+
+    <!-- Card 5: Time to Critical -->
+    <article class="card card-ttc">
+      <p class="card-label">Est. Time to Critical</p>
+      <div>
+        <span id="val-ttc" class="card-value mono">--</span>
+        <span class="card-unit" id="ttc-unit">s</span>
+      </div>
+      <p id="ttc-sub" class="card-sub">Not approaching</p>
+    </article>
+
+  </section>
+
+  <!-- ── CHARTS ── -->
+  <section class="charts-grid" aria-label="Live sensor charts">
+
+    <!-- Distance chart (wider) -->
+    <article class="card chart-card">
+      <p class="card-label">Distance vs Time</p>
+      <div class="chart-container">
+        <canvas id="chart-distance" aria-label="Live distance chart"></canvas>
+      </div>
+    </article>
+
+    <!-- Velocity chart -->
+    <article class="card chart-card">
+      <p class="card-label">Velocity vs Time</p>
+      <div class="chart-container">
+        <canvas id="chart-velocity" aria-label="Live velocity chart"></canvas>
+      </div>
+    </article>
+
+    <!-- Risk chart -->
+    <article class="card chart-card">
+      <p class="card-label">Risk Score vs Time</p>
+      <div class="chart-container">
+        <canvas id="chart-risk" aria-label="Live risk score chart"></canvas>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- ── AI ANALYSIS + SYSTEM HEALTH ── -->
+  <section class="lower-grid">
+
+    <!-- AI Analysis Panel -->
+    <article class="card">
+      <div class="ai-panel-title">
+        <span>🧠</span>
+        <span>AI Analysis Breakdown</span>
+      </div>
+
+      <div class="risk-row">
+        <span class="risk-label">Proximity Risk</span>
+        <div class="risk-bar-wrap"><div id="bar-proximity" class="risk-bar proximity" style="width:0%"></div></div>
+        <span id="pct-proximity" class="risk-pct">0%</span>
+      </div>
+
+      <div class="risk-row">
+        <span class="risk-label">Velocity Risk</span>
+        <div class="risk-bar-wrap"><div id="bar-velocity" class="risk-bar velocity" style="width:0%"></div></div>
+        <span id="pct-velocity" class="risk-pct">0%</span>
+      </div>
+
+      <div class="risk-row">
+        <span class="risk-label">Acceleration Risk</span>
+        <div class="risk-bar-wrap"><div id="bar-accel" class="risk-bar accel" style="width:0%"></div></div>
+        <span id="pct-accel" class="risk-pct">0%</span>
+      </div>
+
+      <div class="risk-row">
+        <span class="risk-label">Anomaly Score (ML)</span>
+        <div class="risk-bar-wrap"><div id="bar-anomaly" class="risk-bar anomaly" style="width:0%"></div></div>
+        <span id="pct-anomaly" class="risk-pct">0%</span>
+      </div>
+
+      <div class="ai-overall">
+        <div>
+          <div class="ai-overall-label">Overall Risk Score</div>
+          <div id="ai-trend-badge" class="ai-trend">● STABLE</div>
+        </div>
+        <div id="ai-overall-score" class="ai-overall-score">0</div>
+      </div>
+
+      <p style="font-size:11px;color:var(--text-muted);margin-top:14px;line-height:1.6">
+        ℹ️ This is an AI-assisted risk analysis layer for an educational IoT prototype.
+        It is not a certified railway safety system.
+      </p>
+    </article>
+
+    <!-- System Health Panel -->
+    <article class="card">
+      <div class="ai-panel-title">
+        <span>⚙️</span>
+        <span>System Health</span>
+      </div>
+
+      <div class="health-row">
+        <span class="health-key">Sensor</span>
+        <span id="health-sensor" class="health-val ok">--</span>
+      </div>
+      <div class="health-row">
+        <span class="health-key">Mode</span>
+        <span class="health-val neutral">{{ app_mode }}</span>
+      </div>
+      <div class="health-row">
+        <span class="health-key">Last Reading</span>
+        <span id="health-last-time" class="health-val neutral">--</span>
+      </div>
+      <div class="health-row">
+        <span class="health-key">Database</span>
+        <span id="health-db" class="health-val ok">ACTIVE</span>
+      </div>
+      <div class="health-row">
+        <span class="health-key">ML Model</span>
+        <span id="health-ml" class="health-val ok">ACTIVE</span>
+      </div>
+      <div class="health-row">
+        <span class="health-key">Buffer Size</span>
+        <span id="health-buffer" class="health-val neutral">--</span>
+      </div>
+
+      <!-- Statistics mini-panel -->
+      <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
+        <div class="ai-panel-title" style="font-size:11px;margin-bottom:12px">
+          <span>📊</span><span>Session Statistics</span>
+        </div>
+        <div class="health-row">
+          <span class="health-key">Total Readings</span>
+          <span id="stat-total" class="health-val neutral">--</span>
+        </div>
+        <div class="health-row">
+          <span class="health-key">Min Distance</span>
+          <span id="stat-min-dist" class="health-val neutral">--</span>
+        </div>
+        <div class="health-row">
+          <span class="health-key">Max Distance</span>
+          <span id="stat-max-dist" class="health-val neutral">--</span>
+        </div>
+        <div class="health-row">
+          <span class="health-key">Avg Risk Score</span>
+          <span id="stat-avg-risk" class="health-val neutral">--</span>
+        </div>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- ── MOCK SIMULATOR CONTROLS (only shown in MOCK mode) ── -->
+  {% if app_mode == "MOCK" %}
+  <section id="simulator-panel" class="simulator-panel" aria-label="Simulation controls">
+    <div class="sim-header">
+      <span class="sim-tag">MOCK MODE</span>
+      <span class="sim-title">Sensor Simulator Controls</span>
+      <span style="font-size:12px;color:var(--text-muted);margin-left:auto">
+        No Arduino hardware required
+      </span>
+    </div>
+
+    <div class="sim-grid">
+
+      <!-- Scenario selector -->
+      <div class="sim-group">
+        <label>Scenario</label>
+        <div class="scenario-buttons">
+          <button class="scen-btn active" data-scenario="random_demo" id="scen-random">🔄 Auto Demo</button>
+          <button class="scen-btn" data-scenario="stable"         id="scen-stable">📍 Stable</button>
+          <button class="scen-btn" data-scenario="slow_approach"  id="scen-slow">🐢 Slow Approach</button>
+          <button class="scen-btn" data-scenario="rapid_approach" id="scen-rapid">⚡ Rapid Approach</button>
+          <button class="scen-btn" data-scenario="critical_event" id="scen-critical">🚨 Critical Event</button>
+          <button class="scen-btn" data-scenario="noise"          id="scen-noise">📡 Sensor Noise</button>
+        </div>
+      </div>
+
+      <!-- Speed + Start distance -->
+      <div class="sim-group">
+        <label>Simulation Speed</label>
+        <div class="speed-row">
+          <input type="range" id="speed-slider" min="0.1" max="5" step="0.1" value="1.0">
+          <span id="speed-display" class="speed-val">1.0×</span>
+        </div>
+
+        <label style="margin-top:14px">Starting Distance (cm)</label>
+        <div class="dist-input-row">
+          <input type="number" id="start-distance" value="100" min="5" max="300" step="5">
+          <button class="btn" id="btn-set-distance">Set</button>
+        </div>
+      </div>
+
+      <!-- Playback controls -->
+      <div class="sim-group">
+        <label>Playback Controls</label>
+        <div class="ctrl-buttons">
+          <button class="ctrl-btn pause"  id="btn-pause">⏸ Pause</button>
+          <button class="ctrl-btn resume" id="btn-resume">▶ Resume</button>
+          <button class="ctrl-btn reset"  id="btn-reset">↺ Reset</button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+  {% endif %}
+
+  <!-- ── HISTORICAL DATA TABLE ── -->
+  <section class="history-section card">
+    <div class="history-header">
+      <span class="section-title">📋 Historical Readings</span>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" id="btn-refresh-history">↻ Refresh</button>
+        <button class="btn btn-accent" id="btn-export-csv">⬇ Export CSV</button>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table aria-label="Historical sensor readings">
+        <thead>
+          <tr>
+            <th>Timestamp</th>
+            <th>Distance (cm)</th>
+            <th>Velocity (cm/s)</th>
+            <th>Accel (cm/s²)</th>
+            <th>Risk Score</th>
+            <th>Anomaly</th>
+            <th>Status</th>
+            <th>Mode</th>
+          </tr>
+        </thead>
+        <tbody id="history-tbody">
+          <tr>
+            <td colspan="8" style="text-align:center;color:var(--text-muted);padding:24px">
+              Loading readings...
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</main>
+
+<!-- Dashboard JS (loaded after DOM is ready) -->
+<script src="/static/js/dashboard.js"></script>
+
+</body>
+</html>
